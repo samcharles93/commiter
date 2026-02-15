@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/samcharles93/commiter/internal/config"
+	"github.com/samcharles93/commiter/internal/git"
 	"github.com/samcharles93/commiter/internal/llm"
 )
 
@@ -36,4 +37,48 @@ func TestModelWindowResizeWithStagedDiffDoesNotPanic(t *testing.T) {
 
 	runResize(tea.WindowSizeMsg{Width: 120, Height: 40})
 	runResize(tea.WindowSizeMsg{Width: 1, Height: 1})
+}
+
+func TestCommitSuccessWithRemainingChangesShowsContinuePrompt(t *testing.T) {
+	m := NewModel(stubProvider{}, nil, "", "openai", "gpt-4o", &config.Config{})
+	m.commitMsg = "feat: test"
+
+	updated, cmd := m.Update(CommitSuccessMsg{
+		HasRemainingChanges: true,
+		RemainingFiles: []git.ChangedFile{
+			{Path: "main.go", Status: "modified"},
+		},
+	})
+
+	if cmd != nil {
+		t.Fatalf("expected no command when entering continue prompt state")
+	}
+
+	model := updated.(Model)
+	if model.state != StateContinueConfirm {
+		t.Fatalf("expected state %q, got %q", StateContinueConfirm, model.state)
+	}
+	if len(model.files) != 1 || model.files[0].Path != "main.go" {
+		t.Fatalf("expected remaining files to be stored in model")
+	}
+}
+
+func TestContinueConfirmEnterStartsGeneratingWhenDiffExists(t *testing.T) {
+	m := NewModel(stubProvider{}, nil, "", "openai", "gpt-4o", &config.Config{})
+	m.state = StateContinueConfirm
+	m.diff = "diff --git a/main.go b/main.go"
+	m.history = []llm.Message{{Role: "assistant", Content: "old"}}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("expected generate command when continuing with staged diff")
+	}
+
+	model := updated.(Model)
+	if model.state != StateGenerating {
+		t.Fatalf("expected state %q, got %q", StateGenerating, model.state)
+	}
+	if len(model.history) != 0 {
+		t.Fatalf("expected history to reset for next commit flow")
+	}
 }
