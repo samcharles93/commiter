@@ -18,6 +18,7 @@ type HistoryModel struct {
 	commits      []git.CommitInfo
 	list         list.Model
 	diffViewer   components.DiffViewer
+	markdown     components.MarkdownRenderer
 	selectedHash string
 	commitDetail *git.CommitInfo
 	commitDiff   string
@@ -77,6 +78,7 @@ func NewHistoryModel(commits []git.CommitInfo) HistoryModel {
 		commits:     commits,
 		list:        l,
 		diffViewer:  components.NewDiffViewer(),
+		markdown:    components.NewMarkdownRenderer(),
 		filterInput: filterInput,
 	}
 }
@@ -169,9 +171,13 @@ func (m HistoryModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.WindowSizeMsg:
+		appH, appV := AppStyle.GetFrameSize()
 		h, v := BoxStyle.GetFrameSize()
-		m.list.SetSize(msg.Width-h, msg.Height-v-5)
-		m.diffViewer.SetSize(msg.Width, msg.Height-10)
+		contentWidth := msg.Width - appH - h
+		contentHeight := msg.Height - appV
+		m.list.SetSize(contentWidth, contentHeight-v-5)
+		m.diffViewer.SetSize(msg.Width-appH, contentHeight-10)
+		m.markdown.SetWidth(contentWidth - 4)
 	}
 
 	// Update child components
@@ -190,17 +196,18 @@ func (m HistoryModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m HistoryModel) View() string {
+	var content string
 	switch m.state {
 	case historyStateList:
-		return m.renderList()
+		content = m.renderList()
 	case historyStateDetail:
-		return m.renderDetail()
+		content = m.renderDetail()
 	case historyStateFilter:
-		return m.renderFilter()
+		content = m.renderFilter()
 	case historyStateError:
-		return m.renderError()
+		content = m.renderError()
 	}
-	return ""
+	return AppStyle.Render(content)
 }
 
 func (m HistoryModel) renderList() string {
@@ -219,7 +226,11 @@ func (m HistoryModel) renderDetail() string {
 		b.WriteString(SubtleStyle.Render("Hash: ") + m.commitDetail.Hash + "\n")
 		b.WriteString(SubtleStyle.Render("Author: ") + m.commitDetail.Author + "\n")
 		b.WriteString(SubtleStyle.Render("Date: ") + m.commitDetail.Date + "\n\n")
-		b.WriteString(BoxStyle.Render(m.commitDetail.Subject+"\n\n"+m.commitDetail.Body) + "\n\n")
+		message := m.commitDetail.Subject
+		if body := strings.TrimSpace(m.commitDetail.Body); body != "" {
+			message += "\n\n" + body
+		}
+		b.WriteString(BoxStyle.Render(m.markdown.Render(message)) + "\n\n")
 	}
 
 	if m.showDiff {

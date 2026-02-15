@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/samcharles93/commiter/internal/config"
 	"github.com/samcharles93/commiter/internal/git"
+	"github.com/samcharles93/commiter/internal/hooks"
 	"github.com/samcharles93/commiter/internal/llm"
 	"github.com/samcharles93/commiter/internal/ui/components"
 )
@@ -20,6 +22,7 @@ const successExitDelay = 1200 * time.Millisecond
 
 // Model is the main TUI model
 type Model struct {
+	cfg           *config.Config
 	state         string
 	provider      llm.Provider
 	diff          string
@@ -41,11 +44,21 @@ type Model struct {
 	isAmending    bool
 	previousState string
 	diffViewer    components.DiffViewer
+	markdown      components.MarkdownRenderer
 	lastCommit    *git.CommitInfo
+	hookWarning   string
+	preHooks      []string
+	postHooks     []string
+	hookTimeout   time.Duration
+	hooksDisabled bool
 }
 
 // NewModel creates a new TUI model
-func NewModel(provider llm.Provider, files []git.ChangedFile, diff string, providerName, modelName string, cfg *config.Config) Model {
+func NewModel(provider llm.Provider, files []git.ChangedFile, diff string, providerName, modelName string, cfg *config.Config, hooksDisabled bool) Model {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = SelectedFileStyle
@@ -58,6 +71,7 @@ func NewModel(provider llm.Provider, files []git.ChangedFile, diff string, provi
 	fileList.Styles.Title = TitleStyle
 
 	var initialState string
+	selectedTemplate := cfg.ResolveDefaultTemplate()
 
 	if len(diff) == 0 {
 		items := make([]list.Item, len(files))
@@ -69,12 +83,20 @@ func NewModel(provider llm.Provider, files []git.ChangedFile, diff string, provi
 
 		// Check if we should show template selection first
 		if len(cfg.Templates) > 0 {
-			initialState = StateTemplateSelection
+			if selectedTemplate == nil {
+				initialState = StateTemplateSelection
+			} else {
+				initialState = StateFileSelection
+			}
 		} else {
 			initialState = StateFileSelection
 		}
 	} else {
-		initialState = StateGenerating
+		if len(cfg.Templates) > 0 && selectedTemplate == nil {
+			initialState = StateTemplateSelection
+		} else {
+			initialState = StateGenerating
+		}
 	}
 
 	ta := textarea.New()
@@ -103,19 +125,26 @@ func NewModel(provider llm.Provider, files []git.ChangedFile, diff string, provi
 	}
 
 	m := Model{
-		state:        initialState,
-		provider:     provider,
-		diff:         diff,
-		spinner:      s,
-		fileList:     fileList,
-		textarea:     ta,
-		templateList: templateList,
-		files:        files,
-		templates:    templates,
-		providerName: providerName,
-		modelName:    modelName,
-		confirmQuit:  cfg.GetConfirmQuit(),
-		diffViewer:   components.NewDiffViewer(),
+		state:         initialState,
+		cfg:           cfg,
+		provider:      provider,
+		diff:          diff,
+		spinner:       s,
+		fileList:      fileList,
+		textarea:      ta,
+		templateList:  templateList,
+		files:         files,
+		templates:     templates,
+		template:      selectedTemplate,
+		providerName:  providerName,
+		modelName:     modelName,
+		confirmQuit:   cfg.GetConfirmQuit(),
+		diffViewer:    components.NewDiffViewer(),
+		markdown:      components.NewMarkdownRenderer(),
+		preHooks:      append([]string(nil), cfg.PreCommitHooks...),
+		postHooks:     append([]string(nil), cfg.PostCommitHooks...),
+		hookTimeout:   time.Duration(cfg.GetHookTimeoutSeconds()) * time.Second,
+		hooksDisabled: hooksDisabled,
 	}
 
 	return m
@@ -151,6 +180,18 @@ func (m Model) generateSummary() tea.Cmd {
 
 func (m Model) commitChanges() tea.Cmd {
 	return func() tea.Msg {
+		if !m.hooksDisabled {
+			if err := hooks.Run(context.Background(), hooks.RunOptions{
+				Phase:         hooks.PhasePreCommit,
+				Commands:      m.preHooks,
+				Timeout:       m.hookTimeout,
+				CommitMessage: m.commitMsg,
+				IsAmend:       m.isAmending,
+			}); err != nil {
+				return CommitErrorMsg{Err: fmt.Errorf("pre-commit hook failed: %w", err)}
+			}
+		}
+
 		var err error
 		if m.isAmending {
 			err = git.AmendCommit(m.commitMsg)
@@ -162,16 +203,30 @@ func (m Model) commitChanges() tea.Cmd {
 			return CommitErrorMsg{Err: err}
 		}
 
+		hookWarning := ""
+		if !m.hooksDisabled {
+			if err := hooks.Run(context.Background(), hooks.RunOptions{
+				Phase:         hooks.PhasePostCommit,
+				Commands:      m.postHooks,
+				Timeout:       m.hookTimeout,
+				CommitMessage: m.commitMsg,
+				IsAmend:       m.isAmending,
+			}); err != nil {
+				hookWarning = fmt.Sprintf("### Post-commit hook failed\n\n```text\n%s\n```", err)
+			}
+		}
+
 		remainingDiff, remainingFiles, err := m.collectRemainingChanges()
 		if err != nil {
 			// Commit already succeeded; skip follow-up prompt if we cannot inspect remaining changes.
-			return CommitSuccessMsg{}
+			return CommitSuccessMsg{HookWarning: hookWarning}
 		}
 
 		return CommitSuccessMsg{
 			HasRemainingChanges: len(remainingDiff) > 0 || len(remainingFiles) > 0,
 			RemainingDiff:       remainingDiff,
 			RemainingFiles:      remainingFiles,
+			HookWarning:         hookWarning,
 		}
 	}
 }
@@ -238,6 +293,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selected != nil {
 					tmpl := selected.(templateItem)
 					m.template = &tmpl.CommitTemplate
+
+					if m.cfg != nil {
+						m.cfg.DefaultTemplate = tmpl.ConfigValue()
+						if err := config.Save(m.cfg); err != nil {
+							m.state = StateError
+							m.err = fmt.Errorf("failed to save template preference: %w", err)
+							return m, nil
+						}
+					}
+
+					if len(m.diff) > 0 {
+						m.state = StateGenerating
+						return m, tea.Batch(m.spinner.Tick, m.generateCommitMsg())
+					}
+
 					m.state = StateFileSelection
 					return m, nil
 				}
@@ -350,6 +420,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case StateReview:
 			switch msg.String() {
 			case "y":
+				m.hookWarning = ""
 				m.state = StateCommitting
 				return m, tea.Batch(m.spinner.Tick, m.commitChanges())
 			case "n":
@@ -427,6 +498,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case StateAmendConfirm:
 			switch msg.String() {
 			case "y":
+				m.hookWarning = ""
 				m.isAmending = true
 				m.state = StateCommitting
 				return m, tea.Batch(m.spinner.Tick, m.commitChanges())
@@ -452,6 +524,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastCommit = nil
 				m.summary = ""
 				m.history = nil
+				m.hookWarning = ""
 
 				if len(m.diff) > 0 {
 					m.state = StateGenerating
@@ -485,9 +558,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.WindowSizeMsg:
+		appH, appV := AppStyle.GetFrameSize()
+		contentWidth := msg.Width - appH
+		contentHeight := msg.Height - appV
+		if contentWidth < 0 {
+			contentWidth = 0
+		}
+		if contentHeight < 0 {
+			contentHeight = 0
+		}
+
 		h, v := BoxStyle.GetFrameSize()
-		fileListWidth := msg.Width - h
-		fileListHeight := msg.Height - v - 5
+		fileListWidth := contentWidth - h
+		fileListHeight := contentHeight - v - 5
 		if fileListWidth < 0 {
 			fileListWidth = 0
 		}
@@ -499,13 +582,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.templates) > 0 {
 			m.templateList.SetSize(fileListWidth, fileListHeight)
 		}
-		textareaWidth := msg.Width - h - 4
+		textareaWidth := contentWidth - h - 4
 		if textareaWidth < 0 {
 			textareaWidth = 0
 		}
 		m.textarea.SetWidth(textareaWidth)
 		m.textarea.SetHeight(8)
-		m.diffViewer.SetSize(msg.Width, msg.Height-4)
+		m.diffViewer.SetSize(contentWidth, contentHeight-4)
+		m.markdown.SetWidth(textareaWidth)
 
 	case GenerateMsg:
 		if msg.Err != nil {
@@ -527,6 +611,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case CommitSuccessMsg:
+		m.hookWarning = msg.HookWarning
 		if msg.HasRemainingChanges {
 			m.diff = msg.RemainingDiff
 			m.files = msg.RemainingFiles
@@ -575,39 +660,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the UI
 func (m Model) View() string {
 	if m.showHelp {
-		return m.renderHelp()
+		return AppStyle.Render(m.renderHelp())
 	}
 
+	var content string
 	switch m.state {
 	case StateTemplateSelection:
-		return m.renderTemplateSelection()
+		content = m.renderTemplateSelection()
 	case StateFileSelection:
-		return m.renderFileSelection()
+		content = m.renderFileSelection()
 	case StateGenerating:
-		return m.renderGenerating()
+		content = m.renderGenerating()
 	case StateReview:
-		return m.renderReview()
+		content = m.renderReview()
 	case StateRefining:
-		return m.renderRefining()
+		content = m.renderRefining()
 	case StateSummary:
-		return m.renderSummary()
+		content = m.renderSummary()
 	case StateCommitting:
-		return m.renderCommitting()
+		content = m.renderCommitting()
 	case StateSuccess:
-		return m.renderSuccess()
+		content = m.renderSuccess()
 	case StateContinueConfirm:
-		return m.renderContinueConfirm()
+		content = m.renderContinueConfirm()
 	case StateError:
-		return m.renderError()
+		content = m.renderError()
 	case StateDiffPreview:
-		return m.renderDiffPreview()
+		content = m.renderDiffPreview()
 	case StateAmendConfirm:
-		return m.renderAmendConfirm()
+		content = m.renderAmendConfirm()
 	case StateQuitConfirm:
-		return m.renderQuitConfirm()
+		content = m.renderQuitConfirm()
 	}
 
-	return ""
+	return AppStyle.Render(content)
 }
 
 // templateItem implements list.Item for commit templates

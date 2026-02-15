@@ -3,6 +3,9 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 var (
+	AppStyle = lipgloss.NewStyle().
+			Padding(0, 2)
+
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#7D56F4")).

@@ -35,7 +35,7 @@ func (m Model) renderGenerating() string {
 func (m Model) renderReview() string {
 	var b strings.Builder
 	b.WriteString(TitleStyle.Render("📝 Proposed Commit Message") + "\n")
-	b.WriteString(CommitMsgStyle.Render(m.commitMsg) + "\n\n")
+	b.WriteString(CommitMsgStyle.Render(m.markdown.Render(m.commitMsg)) + "\n\n")
 	b.WriteString(SubtleStyle.Render("Provider: "+m.providerName+" | Model: "+m.modelName) + "\n\n")
 
 	amendOption := ""
@@ -51,7 +51,7 @@ func (m Model) renderRefining() string {
 	var b strings.Builder
 	b.WriteString(TitleStyle.Render("✏️  Refine Commit Message") + "\n")
 	b.WriteString(SubtleStyle.Render("Current message:") + "\n")
-	b.WriteString(BoxStyle.Render(m.commitMsg) + "\n")
+	b.WriteString(BoxStyle.Render(m.markdown.Render(m.commitMsg)) + "\n")
 	b.WriteString(SubtleStyle.Render("How should it be improved?") + "\n\n")
 	b.WriteString(m.textarea.View() + "\n\n")
 	b.WriteString(HelpStyle.Render("ctrl+s: submit • esc: cancel"))
@@ -65,7 +65,7 @@ func (m Model) renderSummary() string {
 	if m.summary == "" {
 		b.WriteString(m.spinner.View() + " Analyzing changes...\n")
 	} else {
-		b.WriteString(BoxStyle.Render(m.summary) + "\n\n")
+		b.WriteString(BoxStyle.Render(m.markdown.Render(m.summary)) + "\n\n")
 		b.WriteString(HelpStyle.Render("Press any key to return"))
 	}
 
@@ -91,7 +91,11 @@ func (m Model) renderSuccess() string {
 		action = "Amended"
 	}
 	b.WriteString(SuccessStyle.Render("✅ Success!") + "\n\n")
-	b.WriteString(BoxStyle.Render(action+" with message:\n\n"+m.commitMsg) + "\n")
+	b.WriteString(BoxStyle.Render(action+" with message:\n\n"+m.markdown.Render(m.commitMsg)) + "\n")
+	if m.hookWarning != "" {
+		b.WriteString(SubtleStyle.Render("Hook warning:") + "\n")
+		b.WriteString(ErrorBoxStyle.Render(m.markdown.Render(m.hookWarning)) + "\n")
+	}
 	b.WriteString(SubtleStyle.Render("Returning to terminal...") + "\n")
 	return b.String()
 }
@@ -104,7 +108,11 @@ func (m Model) renderContinueConfirm() string {
 		action = "Amended"
 	}
 	b.WriteString(SuccessStyle.Render("✅ Success!") + "\n\n")
-	b.WriteString(BoxStyle.Render(action+" with message:\n\n"+m.commitMsg) + "\n")
+	b.WriteString(BoxStyle.Render(action+" with message:\n\n"+m.markdown.Render(m.commitMsg)) + "\n")
+	if m.hookWarning != "" {
+		b.WriteString(SubtleStyle.Render("Hook warning:") + "\n")
+		b.WriteString(ErrorBoxStyle.Render(m.markdown.Render(m.hookWarning)) + "\n")
+	}
 	b.WriteString(SubtleStyle.Render("More changes detected. Continue committing?") + "\n")
 	b.WriteString(HelpStyle.Render("[enter] continue • [n/esc] exit"))
 	return b.String()
@@ -114,7 +122,7 @@ func (m Model) renderError() string {
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ErrorStyle.Render("❌ Error") + "\n\n")
-	b.WriteString(ErrorBoxStyle.Render(m.err.Error()) + "\n")
+	b.WriteString(ErrorBoxStyle.Render(m.markdown.Render(m.err.Error())) + "\n")
 	return b.String()
 }
 
@@ -132,10 +140,10 @@ func (m Model) renderAmendConfirm() string {
 	b.WriteString(SubtleStyle.Render("Current commit:") + "\n")
 	if m.lastCommit != nil {
 		currentMsg := fmt.Sprintf("%s\n\n%s", m.lastCommit.Subject, m.lastCommit.Body)
-		b.WriteString(BoxStyle.Render(strings.TrimSpace(currentMsg)) + "\n\n")
+		b.WriteString(BoxStyle.Render(m.markdown.Render(strings.TrimSpace(currentMsg))) + "\n\n")
 	}
 	b.WriteString(SubtleStyle.Render("New commit message:") + "\n")
-	b.WriteString(CommitMsgStyle.Render(m.commitMsg) + "\n\n")
+	b.WriteString(CommitMsgStyle.Render(m.markdown.Render(m.commitMsg)) + "\n\n")
 	b.WriteString(HelpStyle.Render("[y] amend commit • [n/esc] cancel"))
 	return b.String()
 }

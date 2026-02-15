@@ -18,6 +18,7 @@ type CommitSuccessMsg struct {
 	HasRemainingChanges bool
 	RemainingDiff       string
 	RemainingFiles      []git.ChangedFile
+	HookWarning         string
 }
 
 type CommitErrorMsg struct {

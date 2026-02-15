@@ -10,9 +10,9 @@ import (
 
 var (
 	diffStyle = lipgloss.NewStyle().
-			Padding(1, 2).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4"))
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#7D56F4"))
 )
 
 // DiffViewer is a component for viewing diffs with syntax highlighting
@@ -41,8 +41,17 @@ func (d *DiffViewer) SetContent(content string) {
 
 // SetSize sets the viewport size
 func (d *DiffViewer) SetSize(width, height int) {
-	d.viewport.Width = width - 4
-	d.viewport.Height = height - 4
+	vpWidth := width - 4
+	vpHeight := height - 4
+	if vpWidth < 0 {
+		vpWidth = 0
+	}
+	if vpHeight < 0 {
+		vpHeight = 0
+	}
+
+	d.viewport.Width = vpWidth
+	d.viewport.Height = vpHeight
 	d.ready = true
 	if d.content != "" {
 		highlighted := highlightDiff(d.content)
