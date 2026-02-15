@@ -1,19 +1,21 @@
-# Commiter 🤖
+# Commiter
 
-AI-powered git commit message generator with a beautiful TUI.
+Fast AI-powered git commits in a TUI.
 
 ## Features
 
-### 🎯 Core Features
-- **AI-Powered Commit Messages**: Generate intelligent commit messages using LLMs (DeepSeek, OpenAI)
+### Features
+- **Fast AI commit messages**: generate contextual commit messages using git diff
 - **Interactive TUI**: Beautiful terminal user interface built with Bubble Tea
 - **Multi-Select Files**: Select multiple files to stage with spacebar
 - **Diff Preview**: View syntax-highlighted diffs before committing
 - **Commit Templates**: Conventional Commits and custom templates
 - **Commit History Browser**: Browse and search recent commits with diffs
 - **Amend Support**: Option to amend the last commit
+- **Configurable Commit Hooks**: Run custom pre/post commit commands
 - **Quit Confirmation**: Optional confirmation before quitting
 - **Bypass Mode**: Quick commit without interactive prompts
+- **Markdown Rendering**: Rich markdown output for summaries, history details, and hook diagnostics
 
 ### 🛠️ Commands
 
@@ -32,6 +34,9 @@ Interactive configuration editor:
 - API Key
 - Model name
 - Base URL
+- Pre-commit hooks
+- Post-commit hooks
+- Hook timeout (per command)
 - Confirm quit setting
 
 #### History
@@ -58,6 +63,9 @@ commiter file1.go file2.go -y -m "fix: bug in handler"
 
 # Multiple files
 commiter src/*.go -y
+
+# Skip configured hooks for this run
+commiter src/*.go -y --no-hooks
 ```
 
 ### ⌨️ Keyboard Shortcuts
@@ -109,6 +117,13 @@ Configuration is stored in `~/.commiter.json`:
   "api_key": "your-api-key",
   "model": "deepseek-chat",
   "base_url": "https://api.deepseek.com/v1/chat/completions",
+  "pre_commit_hooks": [
+    "go test ./..."
+  ],
+  "post_commit_hooks": [
+    "echo \"commit created\""
+  ],
+  "hook_timeout_seconds": 30,
   "confirm_quit": true,
   "templates": [
     {
@@ -125,7 +140,7 @@ Configuration is stored in `~/.commiter.json`:
 
 1. **Build**:
    ```bash
-   go build -o commiter .
+   go build -o commiter ./cmd/commiter
    ```
 
 2. **Configure**:
@@ -242,6 +257,7 @@ The TUI uses a state machine with the following states:
 - `summary` - View change summary
 - `amend-confirm` - Confirm amending last commit
 - `quit-confirm` - Confirm quitting
+- `continue-confirm` - Continue with remaining changes
 - `committing` - Creating commit
 - `success` - Commit succeeded
 - `error` - Error occurred
