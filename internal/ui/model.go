@@ -16,6 +16,8 @@ import (
 	"github.com/samcharles93/commiter/internal/ui/components"
 )
 
+const successExitDelay = 1200 * time.Millisecond
+
 // Model is the main TUI model
 type Model struct {
 	state         string
@@ -159,8 +161,42 @@ func (m Model) commitChanges() tea.Cmd {
 		if err != nil {
 			return CommitErrorMsg{Err: err}
 		}
-		return CommitSuccessMsg{}
+
+		remainingDiff, remainingFiles, err := m.collectRemainingChanges()
+		if err != nil {
+			// Commit already succeeded; skip follow-up prompt if we cannot inspect remaining changes.
+			return CommitSuccessMsg{}
+		}
+
+		return CommitSuccessMsg{
+			HasRemainingChanges: len(remainingDiff) > 0 || len(remainingFiles) > 0,
+			RemainingDiff:       remainingDiff,
+			RemainingFiles:      remainingFiles,
+		}
 	}
+}
+
+func (m Model) quitAfterSuccess() tea.Cmd {
+	return tea.Tick(successExitDelay, func(time.Time) tea.Msg {
+		return AutoQuitMsg{}
+	})
+}
+
+func (m Model) collectRemainingChanges() (string, []git.ChangedFile, error) {
+	stagedDiff, err := git.GetStagedDiff()
+	if err != nil {
+		return "", nil, err
+	}
+	if len(stagedDiff) > 0 {
+		return string(stagedDiff), nil, nil
+	}
+
+	unstaged, err := git.ListUnstagedChanges()
+	if err != nil {
+		return "", nil, err
+	}
+
+	return "", unstaged, nil
 }
 
 // Update handles messages and updates the model
@@ -409,6 +445,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		case StateContinueConfirm:
+			switch msg.String() {
+			case "enter":
+				m.isAmending = false
+				m.lastCommit = nil
+				m.summary = ""
+				m.history = nil
+
+				if len(m.diff) > 0 {
+					m.state = StateGenerating
+					return m, tea.Batch(m.spinner.Tick, m.generateCommitMsg())
+				}
+
+				if len(m.files) == 0 {
+					return m, tea.Quit
+				}
+
+				items := make([]list.Item, len(m.files))
+				for i := range m.files {
+					m.files[i].Selected = false
+					items[i] = m.files[i]
+				}
+				m.fileList.SetItems(items)
+
+				if len(m.templates) > 0 && m.template == nil {
+					m.state = StateTemplateSelection
+				} else {
+					m.state = StateFileSelection
+				}
+				return m, nil
+
+			case "n", "esc", "q":
+				return m, tea.Quit
+			}
+
 		case StateSuccess, StateError:
 			return m, tea.Quit
 		}
@@ -456,12 +527,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case CommitSuccessMsg:
+		if msg.HasRemainingChanges {
+			m.diff = msg.RemainingDiff
+			m.files = msg.RemainingFiles
+			m.state = StateContinueConfirm
+			return m, nil
+		}
+
 		m.state = StateSuccess
-		return m, nil
+		return m, m.quitAfterSuccess()
 
 	case CommitErrorMsg:
 		m.state = StateError
 		m.err = msg.Err
+		return m, nil
+
+	case AutoQuitMsg:
+		if m.state == StateSuccess {
+			return m, tea.Quit
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -511,6 +595,8 @@ func (m Model) View() string {
 		return m.renderCommitting()
 	case StateSuccess:
 		return m.renderSuccess()
+	case StateContinueConfirm:
+		return m.renderContinueConfirm()
 	case StateError:
 		return m.renderError()
 	case StateDiffPreview:
