@@ -52,11 +52,8 @@ To look back at what you've done:
 commiter history
 ```
 
-### Shortcuts
+### Roadmap
 
-- `Space` - Select/unselect a file
-- `Enter` - Stage selected files
-- `d` - Show diff for a file
-- `y` - Accept and commit
-- `r` - Give feedback to refine the message
-- `q` - Quit
+- [ ] Need to add inline (quick) commits
+- [ ] Add file completions, only for files which haven't been staged/commited
+
