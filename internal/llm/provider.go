@@ -114,13 +114,36 @@ func (s *GenericProvider) GenerateMessage(ctx context.Context, diff string, hist
 	if len(history) == 0 {
 		messages = append(messages, Message{
 			Role:    "user",
-			Content: fmt.Sprintf("Analyze this git diff and provide a commit message:\n\n%s", diff),
+			Content: buildCommitPrompt(diff),
 		})
 	} else {
 		messages = append(messages, history...)
 	}
 
 	return s.complete(ctx, messages)
+}
+
+func buildCommitPrompt(diff string) string {
+	fileCount := countDiffFiles(diff)
+	if fileCount > 1 {
+		return fmt.Sprintf(
+			"Analyze this git diff and provide a commit message.\nThis change spans %d files, so include a concise subject plus a short body with 1-3 bullets covering the main impacts.\n\n%s",
+			fileCount,
+			diff,
+		)
+	}
+
+	return fmt.Sprintf("Analyze this git diff and provide a commit message:\n\n%s", diff)
+}
+
+func countDiffFiles(diff string) int {
+	count := 0
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "diff --git ") {
+			count++
+		}
+	}
+	return count
 }
 
 // SummarizeChanges generates a summary of the changes
