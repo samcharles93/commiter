@@ -1,5 +1,7 @@
 package ui
 
+import "github.com/samcharles93/commiter/internal/git"
+
 // Tea Messages for async operations
 
 type GenerateMsg struct {
@@ -12,8 +14,14 @@ type SummaryMsg struct {
 	Err     error
 }
 
-type CommitSuccessMsg struct{}
+type CommitSuccessMsg struct {
+	HasRemainingChanges bool
+	RemainingDiff       string
+	RemainingFiles      []git.ChangedFile
+}
 
 type CommitErrorMsg struct {
 	Err error
 }
+
+type AutoQuitMsg struct{}
