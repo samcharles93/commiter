@@ -1,18 +1,24 @@
 # Commiter
 
-`commiter` is a simple, AI-powered git commit tool for your terminal. It helps you stage files, see what changed, and writes the commit messages for you so you don't have to.
+`commiter` is a simple, AI-assisted git tool for your terminal.
+It helps you:
+  - stage files
+  - see what changed
+  - writes the commit messages for you based on contextual changes in the git diff
 
 ### What it does
 
-- **AI Messages**: Generates commit messages based on your actual changes.
-- **Interactive UI**: A clean terminal interface to pick files and preview diffs.
-- **Templates**: Supports Conventional Commits out of the box.
-- **History**: Browse and search through your previous commits.
-- **Hooks**: Run your tests or linters automatically before you commit.
+- AI Messages: Generates commit messages based on your actual changes.
+- Interactive UI: A clean terminal interface to pick files and preview diffs.
+- Templates: Supports Conventional Commits out of the box.
+- History: Browse and search through your previous commits.
+- Hooks: Run your tests or linters automatically before you commit.
 
 ### How to use it
 
 #### Installation
+
+Download the binary of your choice from the releases, or:
 
 ```bash
 go install github.com/samcharles93/commiter/cmd/commiter@latest
