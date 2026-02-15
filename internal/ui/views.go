@@ -92,6 +92,21 @@ func (m Model) renderSuccess() string {
 	}
 	b.WriteString(SuccessStyle.Render("✅ Success!") + "\n\n")
 	b.WriteString(BoxStyle.Render(action+" with message:\n\n"+m.commitMsg) + "\n")
+	b.WriteString(SubtleStyle.Render("Returning to terminal...") + "\n")
+	return b.String()
+}
+
+func (m Model) renderContinueConfirm() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	action := "Committed"
+	if m.isAmending {
+		action = "Amended"
+	}
+	b.WriteString(SuccessStyle.Render("✅ Success!") + "\n\n")
+	b.WriteString(BoxStyle.Render(action+" with message:\n\n"+m.commitMsg) + "\n")
+	b.WriteString(SubtleStyle.Render("More changes detected. Continue committing?") + "\n")
+	b.WriteString(HelpStyle.Render("[enter] continue • [n/esc] exit"))
 	return b.String()
 }
 

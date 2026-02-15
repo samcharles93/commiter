@@ -11,6 +11,7 @@ const (
 	StateCommitting        = "committing"
 	StateError             = "error"
 	StateSuccess           = "success"
+	StateContinueConfirm   = "continue-confirm"
 	StateDiffPreview       = "diff-preview"
 	StateAmendConfirm      = "amend-confirm"
 	StateQuitConfirm       = "quit-confirm"
